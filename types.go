@@ -1,5 +1,11 @@
 package main
 
+import (
+	"mcgo/types"
+
+	"github.com/google/uuid"
+)
+
 type CommunicationState int32
 
 const (
@@ -28,3 +34,28 @@ const (
 	// pong (PACKETPINGRESPONSE).
 	PACKETPINGREQUEST = 0x01
 )
+
+type StatusResponse struct {
+	Version            StatusResponseVersion `json:"version"`
+	Players            StatusResponsePlayers `json:"players,omitempty"`
+	Description        types.TextComponent   `json:"description,omitempty"`
+	Favicon            string                `json:"favicon,omitempty"`
+	EnforcesSecureChat bool                  `json:"enforcesSecureChat"`
+	PreviewsChat       bool                  `json:"previewsChat"`
+}
+
+type StatusResponseVersion struct {
+	Name     string `json:"name"`
+	Protocol int32  `json:"protocol"`
+}
+
+type StatusResponsePlayers struct {
+	Max    int                    `json:"max"`
+	Online int                    `json:"online"`
+	Sample []StatusResponsePlayer `json:"sample,omitempty"`
+}
+
+type StatusResponsePlayer struct {
+	Name string    `json:"name"`
+	ID   uuid.UUID `json:"id"`
+}

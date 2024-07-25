@@ -10,7 +10,7 @@ const (
 	CONTINUE_BIT = 0b10000000
 )
 
-func ReadVarInt(r io.Reader) (i uint32, err error) {
+func ReadVarInt(r io.Reader) (i int32, err error) {
 	var pos int
 	for {
 		var current_byte byte
@@ -18,7 +18,7 @@ func ReadVarInt(r io.Reader) (i uint32, err error) {
 		if err != nil {
 			break
 		}
-		i |= (uint32(current_byte&SEGMENT_BITS) << (pos * 7))
+		i |= (int32(current_byte&SEGMENT_BITS) << (pos * 7))
 		if current_byte&CONTINUE_BIT == 0 {
 			break
 		}
@@ -31,7 +31,20 @@ func ReadVarInt(r io.Reader) (i uint32, err error) {
 	return
 }
 
-func PopVarInt(data *[]byte) (i uint32, err error) {
+func WriteVarInt(w io.Writer, i int32) (err error) {
+	for {
+		if i & ^int32(SEGMENT_BITS) == 0 {
+			_, err = w.Write([]byte{byte(i)})
+			return
+		}
+		b := byte(i&int32(SEGMENT_BITS) | CONTINUE_BIT)
+		w.Write([]byte{b})
+
+		i >>= 7
+	}
+}
+
+func PopVarInt(data *[]byte) (i int32, err error) {
 	if data == nil {
 		return 0, fmt.Errorf("data for VarInt is nil")
 	}
@@ -43,7 +56,7 @@ func PopVarInt(data *[]byte) (i uint32, err error) {
 		}
 		current_byte := (*data)[0]
 		*data = (*data)[1:]
-		i |= (uint32(current_byte&SEGMENT_BITS) << (pos * 7))
+		i |= (int32(current_byte&SEGMENT_BITS) << (pos * 7))
 		if current_byte&CONTINUE_BIT == 0 {
 			break
 		}
