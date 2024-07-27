@@ -19,13 +19,24 @@ type Client struct {
 	protocolVersion   int32
 	connectionAddress string
 	connectionPort    uint16
+
+	name string
+	uuid uuid.UUID
+}
+
+func (c Client) String() string {
+	if c.name != "" {
+		return c.name
+	} else if c.uuid != (uuid.UUID{}) {
+		return c.uuid.String()
+	}
+	return c.conn.RemoteAddr().String()
 }
 
 func (c *Client) Stop() {
-	addr := c.conn.RemoteAddr()
 	err := c.conn.Close()
 	if err == nil {
-		fmt.Printf("Stopped Client %s\n", addr)
+		fmt.Printf("Stopped Client %s\n", c)
 	}
 }
 
@@ -59,11 +70,12 @@ func (c *Client) parsePackage(length int32) {
 		return
 	}
 
-	packetID, err := types.PopVarInt(&data)
+	packetNum, err := types.PopVarInt(&data)
 	if err != nil {
 		fmt.Printf("Error on packetID: %v", err)
 		return
 	}
+	packetID := Packet(packetNum)
 
 	switch c.state {
 	case STATEHANDSHAKE:
@@ -81,8 +93,13 @@ func (c *Client) parsePackage(length int32) {
 			return
 		}
 	case STATELOGIN:
-		fmt.Printf("Client %s tried to login, but isnt supportet yet!\n", c.conn.RemoteAddr())
-		c.Stop()
+		switch packetID {
+		case PACKETLOGINSTART:
+			c.handleLoginStart(data)
+		default:
+			fmt.Printf("Client %s tried to login, but isnt supportet yet!\n", c)
+			c.Stop()
+		}
 		return
 	}
 	fmt.Printf("Unknown packet 0x%02x in state 0x%02x: dropping connection\npacket data: % 02x\nstring: %s\n\n", packetID, c.state, data, string(data))
@@ -120,7 +137,7 @@ func (c *Client) handleHandshake(data []byte) {
 	}
 	c.state = CommunicationState(n)
 
-	fmt.Printf("Shaked hands with %s - switched to state 0x%02x with version %d on %s:%d\n", c.conn.RemoteAddr(), c.state, c.protocolVersion, c.connectionAddress, c.connectionPort)
+	fmt.Printf("Shaked hands with %s - switched to state 0x%02x with version %d on %s:%d\n", c, c.state, c.protocolVersion, c.connectionAddress, c.connectionPort)
 }
 
 func (c *Client) handleStatusRequest() {
@@ -150,7 +167,7 @@ func (c *Client) handleStatusRequest() {
 	}
 
 	buf := &bytes.Buffer{}
-	buf.WriteByte(PACKETSTATUSRESPONSE)
+	buf.WriteByte(byte(PACKETSTATUSRESPONSE))
 	err = types.WriteStringData(buf, data)
 
 	types.WriteVarInt(c.conn, int32(buf.Len()))
@@ -167,7 +184,7 @@ func (c *Client) handleStatusRequest() {
 		return
 	}
 
-	fmt.Printf("Send status response to %s\n", c.conn.RemoteAddr())
+	fmt.Printf("Send status response to %s\n", c)
 }
 
 func (c *Client) handlePingRequest(data []byte) {
@@ -185,7 +202,7 @@ func (c *Client) handlePingRequest(data []byte) {
 		return
 	}
 
-	_, err = c.conn.Write([]byte{PACKETPINGRESPONSE})
+	_, err = c.conn.Write([]byte{byte(PACKETPINGRESPONSE)})
 	if err != nil {
 		fmt.Printf("Failed to send ping response (packet id): %v\n", err)
 		c.Stop()
@@ -199,5 +216,43 @@ func (c *Client) handlePingRequest(data []byte) {
 		return
 	}
 
-	fmt.Printf("Send ping response to %s: %d\n", c.conn.RemoteAddr(), pingID)
+	fmt.Printf("Send ping response to %s: %d\n", c, pingID)
+}
+
+func (c *Client) handleLoginStart(data []byte) {
+	var err error
+	c.name, err = types.PopString(&data)
+	if err != nil {
+		fmt.Printf("Error reading player name data: %v\n", err)
+		c.Stop()
+		return
+	}
+	c.uuid, err = types.PopUUID(&data)
+	if err != nil {
+		fmt.Printf("Error reading player name data: %v\n", err)
+		c.Stop()
+		return
+	}
+
+	fmt.Printf("%s (%s) joined the server.\n", c.name, c.uuid)
+	c.Disconnect("Kommscht hier net rein!", "light_purple")
+}
+
+func (c *Client) Disconnect(reason, color string) {
+	buf := &bytes.Buffer{}
+	buf.WriteByte(byte(PACKETDISCONNECT))
+	types.WriteString(buf, fmt.Sprintf("{\"text\":\"%s\",\"color\":\"%s\"}", reason, color))
+
+	err := types.WriteVarInt(c.conn, int32(buf.Len()))
+	if err != nil {
+		fmt.Printf("[ERROR] Failed to disconnect client properly: %v\n", err)
+		return
+	}
+	_, err = c.conn.Write(buf.Bytes())
+	if err != nil {
+		fmt.Printf("[ERROR] Failed to disconnect client properly: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Wrote Disconnect message to %s: %s\n", c, string(buf.Bytes()))
 }
