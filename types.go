@@ -12,8 +12,26 @@ const (
 	STATEHANDSHAKE = iota
 	STATESTATUS
 	STATELOGIN
+	STATECONFIGURATION
 	STATEPLAYING
 )
+
+func (state CommunicationState) String() string {
+	switch state {
+	case STATEHANDSHAKE:
+		return "HANDSHAKE"
+	case STATESTATUS:
+		return "STATUS"
+	case STATELOGIN:
+		return "LOGIN"
+	case STATECONFIGURATION:
+		return "CONFIGURATION"
+	case STATEPLAYING:
+		return "PLAYING"
+	default:
+		return "UNKNOWN_STATE"
+	}
+}
 
 type Packet int32
 
@@ -57,6 +75,14 @@ const (
 	PACKETLOGINACKNOWLEDGED Packet = 0x03
 	// A serverbound packet in the login phase.
 	PACKETCOOKIERESPONSE Packet = 0x04
+
+	// A clientbound packet in the configuration phase.
+	PACKETFINISHCONFIGURATION Packet = 0x03
+
+	// A serverbound packet in the configuration phase.
+	PACKETCLIENTINFORMATION Packet = 0x00
+	// A serverbound packet in the configuration phase.
+	PACKETPLUGINMESSAGE Packet = 0x02
 )
 
 type StatusResponse struct {

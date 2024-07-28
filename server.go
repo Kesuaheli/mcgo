@@ -51,7 +51,7 @@ func (s *Server) NewClient(conn *net.TCPConn) {
 		return
 	}
 
-	c := Client{conn: conn, state: 0}
+	c := Client{conn: conn, state: STATEHANDSHAKE}
 	go c.listen()
 	s.clients = append(s.clients, c)
 }
