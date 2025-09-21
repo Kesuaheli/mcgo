@@ -36,6 +36,8 @@ type ClientConfiguration struct {
 	inServerListing    bool
 }
 
+var switch_to_play = true
+
 func (c Client) String() string {
 	if c.name != "" {
 		return c.name
@@ -121,6 +123,11 @@ func (c *Client) parsePackage(length int32) {
 		case PACKETPLUGINMESSAGE:
 			c.handlePluginMessage(data)
 			return
+		case PACKETFINISHCONFIGURATION:
+			c.state = STATEPLAYING
+			fmt.Printf("Finished configuration for %s switched to playing state\n", c.name)
+			c.sendTranfer()
+			return
 		}
 	}
 	fmt.Printf("Unknown packet 0x%02x in state %s: dropping connection\npacket data: % 02x\nstring: %s\n\n", packetID, c.state, data, string(data))
@@ -155,6 +162,9 @@ func (c *Client) handleHandshake(data []byte) {
 		fmt.Printf("Error reading next state: %v\n", err)
 		c.Stop()
 		return
+	}
+	if n == 3 {
+		n = STATELOGIN
 	}
 	c.state = CommunicationState(n)
 
@@ -293,9 +303,8 @@ func (c *Client) sendLoginSuccess() {
 	for i := 0; i < properties; i++ {
 		types.WriteString(buf, "textures")
 		types.WriteString(buf, "ewogICJ0aW1lc3RhbXAiIDogMTcyMjA3NzM2Njk5OCwKICAicHJvZmlsZUlkIiA6ICIwNDJmNDdkNTlhM2M0Yzk4OWE1MGM3MWYzOGYzOGVkMCIsCiAgInByb2ZpbGVOYW1lIiA6ICJLZXN1YWhlbGkiLAogICJ0ZXh0dXJlcyIgOiB7CiAgICAiU0tJTiIgOiB7CiAgICAgICJ1cmwiIDogImh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvODJmMzNiNmZlM2JiMzZiODg1NTkwZjM3NzZkYWUxNDRmODMyMzM2ZmM5NmJkNGJjYzcxYzUxYWI5ZjM1YmQyIgogICAgfSwKICAgICJDQVBFIiA6IHsKICAgICAgInVybCIgOiAiaHR0cDovL3RleHR1cmVzLm1pbmVjcmFmdC5uZXQvdGV4dHVyZS9hZmQ1NTNiMzkzNThhMjRlZGZlM2I4YTlhOTM5ZmE1ZmE0ZmFhNGQ5YTljM2Q2YWY4ZWFmYjM3N2ZhMDVjMmJiIgogICAgfQogIH0KfQ==")
-		buf.WriteByte(0)
+		buf.WriteByte(0) // signature
 	}
-	buf.WriteByte(1)
 
 	err := types.WriteVarInt(c.conn, int32(buf.Len()))
 	if err != nil {
@@ -363,13 +372,45 @@ func (c *Client) handleClientInformation(data []byte) {
 
 	fmt.Printf("Client config: %+v\n", c.config)
 
-	_, err = c.conn.Write([]byte{0x01, byte(PACKETFINISHCONFIGURATION)})
+	if switch_to_play {
+		_, err = c.conn.Write([]byte{0x01, byte(PACKETFINISHCONFIGURATION)})
+		if err != nil {
+			fmt.Printf("Failed to switch %s to play state: %v\n", c, err)
+			c.Stop()
+			return
+		}
+	} else {
+		// we want to transfer
+		c.sendTranfer()
+		switch_to_play = true
+	}
+
+}
+
+func (c *Client) sendTranfer() {
+	buf := &bytes.Buffer{}
+	switch c.state {
+	case STATECONFIGURATION:
+		buf.WriteByte(byte(PACKETTRANSFERCONFIGURATION))
+	case STATEPLAYING:
+		buf.WriteByte(byte(PACKETTRANSFERPLAYING))
+	}
+
+	types.WriteString(buf, "localhost")
+	types.WriteVarInt(buf, 25566)
+
+	err := types.WriteVarInt(c.conn, int32(buf.Len()))
 	if err != nil {
-		fmt.Printf("Failed to switch %s to play state: %v\n", c, err)
-		c.Stop()
+		fmt.Printf("Failed to write send transfer packet: %v\n", err)
+		c.Disconnect("Transfer failed", "red")
+		return
+	}
+	_, err = c.conn.Write(buf.Bytes())
+	if err != nil {
+		fmt.Printf("Failed to write send transfer packet: %v\n", err)
+		c.Disconnect("Transfer failed", "red")
 		return
 	}
 
-	c.state = STATEPLAYING
-	fmt.Printf("%s switched to play state\n", c)
+	fmt.Printf("%s transfer package send\n", c)
 }

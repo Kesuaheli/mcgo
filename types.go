@@ -83,6 +83,9 @@ const (
 	PACKETCLIENTINFORMATION Packet = 0x00
 	// A serverbound packet in the configuration phase.
 	PACKETPLUGINMESSAGE Packet = 0x02
+
+	PACKETTRANSFERCONFIGURATION Packet = 0x0B
+	PACKETTRANSFERPLAYING       Packet = 0x7A
 )
 
 type StatusResponse struct {
