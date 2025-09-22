@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -126,8 +127,15 @@ func (c *Client) parsePackage(length int32) {
 		case PACKETFINISHCONFIGURATION:
 			c.state = STATEPLAYING
 			fmt.Printf("Finished configuration for %s switched to playing state\n", c.name)
-			c.sendTranfer()
+			c.sendLogin()
+			c.sendPlayerPosition()
 			return
+		}
+	case STATEPLAYING:
+		switch packetID {
+		case PACKETACCEPTTELEPORT:
+			c.sendChunkCenter()
+			c.sendChunkData()
 		}
 	}
 	fmt.Printf("Unknown packet 0x%02x in state %s: dropping connection\npacket data: % 02x\nstring: %s\n\n", packetID, c.state, data, string(data))
@@ -379,6 +387,7 @@ func (c *Client) handleClientInformation(data []byte) {
 			c.Stop()
 			return
 		}
+		c.conn.Write([]byte{0x00, 0x00, 0x00})
 	} else {
 		// we want to transfer
 		c.sendTranfer()
@@ -413,4 +422,191 @@ func (c *Client) sendTranfer() {
 	}
 
 	fmt.Printf("%s transfer package send\n", c)
+}
+
+func (c *Client) sendLogin() {
+	buf := &bytes.Buffer{}
+
+	buf.WriteByte(byte(PACKETLOGINPLAYING))
+
+	// Write Player Entity Identity
+	binary.Write(buf, binary.BigEndian, int32(1))
+
+	// Send Dimension Data
+	types.WriteVarInt(buf, 1) // 1 dimension
+	types.WriteString(buf, "minecraft:overworld")
+
+	// Max Players
+	types.WriteVarInt(buf, 1) // 1 Player
+
+	// View Distance
+	types.WriteVarInt(buf, 2) // min 2, max 32
+
+	// Simulation Distance
+	types.WriteVarInt(buf, 1) // lets try it
+
+	// Reduced Debug Info
+	types.WriteBoolean(buf, false)
+
+	// Enable Respawn screen
+	types.WriteBoolean(buf, true)
+
+	// Do limited Crafting
+	types.WriteBoolean(buf, false)
+
+	// Dimension Type
+	types.WriteVarInt(buf, 0) // hopefully overworld
+
+	// Dimension Name
+	types.WriteString(buf, "minecraft:overworld")
+
+	// Hashed Seed
+	types.WriteLong(buf, 0x12345678)
+
+	// Game Mode
+	buf.WriteByte(0) // 0: Survival, 1: Creative, 2: Adventure, 3: Spectator.
+
+	// Previous Game Mode
+	buf.WriteByte(1) // All bytes set = -1
+
+	// Is Debug
+	types.WriteBoolean(buf, true) // switch off later
+
+	// Is Flat
+	types.WriteBoolean(buf, false)
+
+	// Has Death location
+	types.WriteBoolean(buf, false)
+
+	// Space to implement Death location here!
+
+	// Portal cooldown
+	types.WriteVarInt(buf, 20)
+
+	types.WriteVarInt(buf, 0)
+
+	types.WriteBoolean(buf, false)
+
+	fmt.Printf("Login Data: % 2x\n", buf.Bytes())
+
+	err := types.WriteVarInt(c.conn, int32(buf.Len()))
+	if err != nil {
+		fmt.Printf("Failed to write send login(play) packet: %v\n", err)
+		c.Disconnect("login(play) failed", "red")
+		return
+	}
+	_, err = c.conn.Write(buf.Bytes())
+	if err != nil {
+		fmt.Printf("Failed to write send login(play) packet: %v\n", err)
+		c.Disconnect("login(play) failed", "red")
+		return
+	}
+
+}
+
+func (c *Client) sendPlayerPosition() {
+	buf := &bytes.Buffer{}
+
+	// PACKETPLAYERPOSITION
+	buf.WriteByte(byte(PACKETPLAYERPOSITION))
+
+	// Teleport ID
+	types.WriteVarInt(buf, 0xdead)
+
+	// X Y Z
+	types.WriteDouble(buf, 0)
+	types.WriteDouble(buf, 1)
+	types.WriteDouble(buf, 0)
+
+	// Velocity X Y Z
+	types.WriteDouble(buf, 0)
+	types.WriteDouble(buf, 0)
+	types.WriteDouble(buf, 0)
+
+	// Yaw, Pitch
+	types.WriteFloat(buf, 0)
+	types.WriteFloat(buf, 0)
+
+	// Teleport Flags
+	buf.WriteByte(0) // relative pos
+	buf.WriteByte(0) // relative velocity
+	buf.WriteByte(0) // Rotate velocity ..
+	buf.WriteByte(0) // unused
+
+	err := types.WriteVarInt(c.conn, int32(buf.Len()))
+	if err != nil {
+		fmt.Printf("Failed to write send teleport packet: %v\n", err)
+		c.Disconnect("teleport failed", "red")
+		return
+	}
+	_, err = c.conn.Write(buf.Bytes())
+	if err != nil {
+		fmt.Printf("Failed to write send teleport packet: %v\n", err)
+		c.Disconnect("teleport failed", "red")
+		return
+	}
+}
+
+func (c *Client) sendChunkCenter() {
+	buf := &bytes.Buffer{}
+	buf.WriteByte(byte(PACKETCHUNKCENTER))
+	// Chunk X=0 Y=0
+	types.WriteVarInt(buf, 0)
+	types.WriteVarInt(buf, 0)
+
+	err := types.WriteVarInt(c.conn, int32(buf.Len()))
+	if err != nil {
+		fmt.Printf("Failed to write send chunk center packet: %v\n", err)
+		c.Disconnect("Loading World failed", "red")
+		return
+	}
+	_, err = c.conn.Write(buf.Bytes())
+	if err != nil {
+		fmt.Printf("Failed to write send chunk center packet: %v\n", err)
+		c.Disconnect("Loading World failed", "red")
+		return
+	}
+}
+
+func (c *Client) sendChunkData() {
+	buf := &bytes.Buffer{}
+	buf.WriteByte(byte(PACKETCHUNKDATA))
+	// Chunk X=0 Y=0
+	types.WriteVarInt(buf, 0)
+	types.WriteVarInt(buf, 0)
+
+	// Chunk Data
+	// prefixed array hightmap
+	types.WriteVarInt(buf, 0)
+	// prefixed array data
+	types.WriteVarInt(buf, 0)
+	// prefixed array block entities
+	types.WriteVarInt(buf, 0)
+
+	// Light Data
+	// bitset sky light
+	types.WriteVarInt(buf, 0)
+	// bitset block light
+	types.WriteVarInt(buf, 0)
+	// bitset empty sky light
+	types.WriteVarInt(buf, 0)
+	// bitset empty block light
+	types.WriteVarInt(buf, 0)
+	// bitset sky light arrays
+	types.WriteVarInt(buf, 0)
+	// bitset sky light arrays
+	types.WriteVarInt(buf, 0)
+
+	err := types.WriteVarInt(c.conn, int32(buf.Len()))
+	if err != nil {
+		fmt.Printf("Failed to write send chunk center packet: %v\n", err)
+		c.Disconnect("Loading World failed", "red")
+		return
+	}
+	_, err = c.conn.Write(buf.Bytes())
+	if err != nil {
+		fmt.Printf("Failed to write send chunk center packet: %v\n", err)
+		c.Disconnect("Loading World failed", "red")
+		return
+	}
 }
