@@ -298,7 +298,7 @@ func (c *Client) Disconnect(reason, color string) {
 		return
 	}
 
-	fmt.Printf("Wrote Disconnect message to %s: %s\n", c, string(buf.Bytes()))
+	fmt.Printf("Wrote Disconnect message to %s: %s\n", c, buf.String())
 }
 
 func (c *Client) sendLoginSuccess() {
@@ -432,6 +432,9 @@ func (c *Client) sendLogin() {
 	// Write Player Entity Identity
 	binary.Write(buf, binary.BigEndian, int32(1))
 
+	// Is Hardcore
+	types.WriteBoolean(buf, false)
+
 	// Send Dimension Data
 	types.WriteVarInt(buf, 1) // 1 dimension
 	types.WriteString(buf, "minecraft:overworld")
@@ -501,7 +504,6 @@ func (c *Client) sendLogin() {
 		c.Disconnect("login(play) failed", "red")
 		return
 	}
-
 }
 
 func (c *Client) sendPlayerPosition() {
