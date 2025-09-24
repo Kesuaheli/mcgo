@@ -123,12 +123,16 @@ func (c *Client) parsePackage(length int32) {
 			return
 		case PACKETPLUGINMESSAGE:
 			c.handlePluginMessage(data)
+			c.sendVanillaFeatures()
 			return
 		case PACKETFINISHCONFIGURATION:
 			c.state = STATEPLAYING
 			fmt.Printf("Finished configuration for %s switched to playing state\n", c.name)
 			c.sendLogin()
 			c.sendPlayerPosition()
+			return
+		case PACKETSELECTKNOWNPACKSSERVER:
+			c.sendRegistryData()
 			return
 		}
 	case STATEPLAYING:
@@ -422,6 +426,111 @@ func (c *Client) sendTranfer() {
 	}
 
 	fmt.Printf("%s transfer package send\n", c)
+}
+
+func (c *Client) sendVanillaFeatures() {
+	buf := &bytes.Buffer{}
+	buf.Write([]byte{0x0C, 0x01, 0x11, 0x6D, 0x69, 0x6E, 0x65, 0x63, 0x72, 0x61, 0x66, 0x74, 0x3A, 0x76, 0x61, 0x6E, 0x69, 0x6C, 0x6C, 0x61})
+
+	err := types.WriteVarInt(c.conn, int32(buf.Len()))
+	if err != nil {
+		fmt.Printf("Failed to write send registry data packet: %v\n", err)
+		c.Disconnect("registry data failed", "red")
+		return
+	}
+	fmt.Printf("Dimension Type Registry Data Length: 0x%2x\n", buf.Len())
+	_, err = c.conn.Write(buf.Bytes())
+	if err != nil {
+		fmt.Printf("Failed to write send registry data packet: %v\n", err)
+		c.Disconnect("registry data failed", "red")
+		return
+	}
+
+	buf = &bytes.Buffer{}
+
+	buf.Write([]byte{0x0E, 0x01, 0x09, 0x6D, 0x69, 0x6E, 0x65, 0x63, 0x72, 0x61, 0x66, 0x74, 0x04, 0x63, 0x6F, 0x72, 0x65, 0x06, 0x31, 0x2E, 0x32, 0x31, 0x2E, 0x38})
+
+	err = types.WriteVarInt(c.conn, int32(buf.Len()))
+	if err != nil {
+		fmt.Printf("Failed to write send registry data packet: %v\n", err)
+		c.Disconnect("registry data failed", "red")
+		return
+	}
+	fmt.Printf("Dimension Type Registry Data Length: 0x%2x\n", buf.Len())
+	_, err = c.conn.Write(buf.Bytes())
+	if err != nil {
+		fmt.Printf("Failed to write send registry data packet: %v\n", err)
+		c.Disconnect("registry data failed", "red")
+		return
+	}
+}
+
+func (c *Client) sendRegistryData() {
+	buf := &bytes.Buffer{}
+	// dimension type
+	buf.WriteByte(byte(PACKETREGISTRYDATA))
+
+	types.WriteString(buf, "minecraft:dimension_type")
+
+	// prefixed array entries
+	types.WriteVarInt(buf, 4) // 4 dimension types
+	types.WriteString(buf, "minecraft:overworld")
+	types.WriteVarInt(buf, 0) // no data
+	types.WriteString(buf, "minecraft:overworld_caves")
+	types.WriteVarInt(buf, 0) // no data
+	types.WriteString(buf, "minecraft:the_end")
+	types.WriteVarInt(buf, 0) // no data
+	types.WriteString(buf, "minecraft:the_nether")
+	types.WriteVarInt(buf, 0) // no data
+
+	fmt.Printf("Dimension Type Registry Data: % 2x\n", buf.Bytes())
+
+	err := types.WriteVarInt(c.conn, int32(buf.Len()))
+	if err != nil {
+		fmt.Printf("Failed to write send registry data packet: %v\n", err)
+		c.Disconnect("registry data failed", "red")
+		return
+	}
+	fmt.Printf("Dimension Type Registry Data Length: 0x%2x\n", buf.Len())
+	_, err = c.conn.Write(buf.Bytes())
+	if err != nil {
+		fmt.Printf("Failed to write send registry data packet: %v\n", err)
+		c.Disconnect("registry data failed", "red")
+		return
+	}
+	emptyRegistries := map[string]string{
+		"minecraft:cat_variant":        "minecraft:jellie",
+		"minecraft:chicken_variant":    "minecraft:temperate",
+		"minecraft:cow_variant":        "minecraft:temperate",
+		"minecraft:frog_variant":       "minecraft:temperate",
+		"minecraft:painting_variant":   "minecraft:water",
+		"minecraft:pig_variant":        "minecraft:temperate",
+		"minecraft:wolf_sound_variant": "minecraft:cute",
+		"minecraft:wolf_variant":       "minecraft:pale",
+	}
+	for registry, value := range emptyRegistries {
+		buf := &bytes.Buffer{}
+		buf.WriteByte(byte(PACKETREGISTRYDATA))
+
+		types.WriteString(buf, registry)
+		types.WriteVarInt(buf, 1) // 1 entry
+		types.WriteString(buf, value)
+		types.WriteVarInt(buf, 0) // no data
+
+		err := types.WriteVarInt(c.conn, int32(buf.Len()))
+		if err != nil {
+			fmt.Printf("Failed to write send registry data packet: %v\n", err)
+			c.Disconnect("registry data failed", "red")
+			return
+		}
+		_, err = c.conn.Write(buf.Bytes())
+		if err != nil {
+			fmt.Printf("Failed to write send registry data packet: %v\n", err)
+			c.Disconnect("registry data failed", "red")
+			return
+		}
+		fmt.Printf("Sent empty registry data: %s\n", registry)
+	}
 }
 
 func (c *Client) sendLogin() {
