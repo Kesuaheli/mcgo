@@ -145,6 +145,9 @@ func (c *Client) parsePackage(length int32) {
 			c.sendChunkCenter()
 			c.sendChunkData()
 			return
+		case PACKETMOVEPLAYERPOS:
+			c.handleClientPosUpdate(data, true, false)
+			return
 		case PACKETMOVEPLAYERPOSROT:
 			c.handleClientPosUpdate(data, true, true)
 			return
