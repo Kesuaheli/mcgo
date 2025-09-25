@@ -10,6 +10,7 @@ import (
 	"mcgo/types"
 	"net"
 	"runtime/debug"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -50,7 +51,9 @@ func (c Client) String() string {
 func (c *Client) Stop() {
 	err := c.conn.Close()
 	if err == nil {
-		fmt.Printf("Stopped client %s from:\n%s\n", c, debug.Stack())
+		stacks := strings.Split(string(debug.Stack()), "\n")
+		stack := stacks[0] + "\n" + strings.Join(stacks[5:], "\n")
+		fmt.Printf("Stopped client %s from:\n%s\n", c, stack)
 	}
 }
 
