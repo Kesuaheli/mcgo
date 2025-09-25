@@ -821,9 +821,9 @@ func (c *Client) sendChunkCenter() {
 func (c *Client) sendChunkData() {
 	buf := &bytes.Buffer{}
 	buf.WriteByte(byte(PACKETCHUNKDATA))
-	// Chunk X=0 Y=0
-	types.WriteVarInt(buf, 0)
-	types.WriteVarInt(buf, 0)
+	// Chunk X=0 Z=0
+	types.WriteInt(buf, int32(0))
+	types.WriteInt(buf, int32(0))
 
 	// Chunk Data
 	// prefixed array hightmap
