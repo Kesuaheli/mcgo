@@ -91,12 +91,16 @@ const (
 
 	PACKETREGISTRYDATA Packet = 0x07
 
+	// Offset in the packet registry: 1.21.8 // 1.21.4
+
 	PACKETLOGINPLAYING   Packet = 0x2B // 0x2C
 	PACKETPLAYERPOSITION Packet = 0x41 // 0x42
 	PACKETACCEPTTELEPORT Packet = 0x00
 
 	PACKETCHUNKCENTER Packet = 0x57 // 0x58
 	PACKETCHUNKDATA   Packet = 0x27 // 0x28
+
+	PACKETMOVEPLAYERPOSROT Packet = 0x1e // 0x1d
 )
 
 type StatusResponse struct {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"mcgo/types"
 	"net"
+	"runtime/debug"
 
 	"github.com/google/uuid"
 )
@@ -37,8 +38,6 @@ type ClientConfiguration struct {
 	inServerListing    bool
 }
 
-var switch_to_play = true
-
 func (c Client) String() string {
 	if c.name != "" {
 		return c.name
@@ -51,7 +50,7 @@ func (c Client) String() string {
 func (c *Client) Stop() {
 	err := c.conn.Close()
 	if err == nil {
-		fmt.Printf("Stopped Client %s\n", c)
+		fmt.Printf("Stopped client %s from:\n%s\n", c, debug.Stack())
 	}
 }
 
@@ -60,6 +59,7 @@ func (c *Client) listen() {
 	for {
 		length, err := types.ReadVarInt(c.conn)
 		if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+			fmt.Printf("Connection closed: %s\n", c)
 			break
 		} else if err != nil {
 			fmt.Printf("Error on reading package length: %v\n", err)
@@ -114,6 +114,7 @@ func (c *Client) parsePackage(length int32) {
 			return
 		case PACKETLOGINACKNOWLEDGED:
 			c.handleLoginAcknowledgement()
+			c.sendVanillaFeatures()
 			return
 		}
 	case STATECONFIGURATION:
@@ -123,7 +124,6 @@ func (c *Client) parsePackage(length int32) {
 			return
 		case PACKETPLUGINMESSAGE:
 			c.handlePluginMessage(data)
-			c.sendVanillaFeatures()
 			return
 		case PACKETFINISHCONFIGURATION:
 			c.state = STATEPLAYING
@@ -133,6 +133,7 @@ func (c *Client) parsePackage(length int32) {
 			return
 		case PACKETSELECTKNOWNPACKSSERVER:
 			c.sendRegistryData()
+			c.finishConfiguration()
 			return
 		}
 	case STATEPLAYING:
@@ -140,6 +141,10 @@ func (c *Client) parsePackage(length int32) {
 		case PACKETACCEPTTELEPORT:
 			c.sendChunkCenter()
 			c.sendChunkData()
+			return
+		case PACKETMOVEPLAYERPOSROT:
+			c.handleClientPosUpdate(data, true, true)
+			return
 		}
 	}
 	fmt.Printf("Unknown packet 0x%02x in state %s: dropping connection\npacket data: % 02x\nstring: %s\n\n", packetID, c.state, data, string(data))
@@ -383,21 +388,15 @@ func (c *Client) handleClientInformation(data []byte) {
 	c.config.inServerListing = data[1] == 1
 
 	fmt.Printf("Client config: %+v\n", c.config)
+}
 
-	if switch_to_play {
-		_, err = c.conn.Write([]byte{0x01, byte(PACKETFINISHCONFIGURATION)})
-		if err != nil {
-			fmt.Printf("Failed to switch %s to play state: %v\n", c, err)
-			c.Stop()
-			return
-		}
-		c.conn.Write([]byte{0x00, 0x00, 0x00})
-	} else {
-		// we want to transfer
-		c.sendTranfer()
-		switch_to_play = true
+func (c *Client) finishConfiguration() {
+	_, err := c.conn.Write([]byte{0x01, byte(PACKETFINISHCONFIGURATION)})
+	if err != nil {
+		fmt.Printf("Failed to send finish configuration state for %s: %v\n", c, err)
+		c.Stop()
+		return
 	}
-
 }
 
 func (c *Client) sendTranfer() {
@@ -466,56 +465,151 @@ func (c *Client) sendVanillaFeatures() {
 }
 
 func (c *Client) sendRegistryData() {
-	buf := &bytes.Buffer{}
-	// dimension type
-	buf.WriteByte(byte(PACKETREGISTRYDATA))
-
-	types.WriteString(buf, "minecraft:dimension_type")
-
-	// prefixed array entries
-	types.WriteVarInt(buf, 4) // 4 dimension types
-	types.WriteString(buf, "minecraft:overworld")
-	types.WriteVarInt(buf, 0) // no data
-	types.WriteString(buf, "minecraft:overworld_caves")
-	types.WriteVarInt(buf, 0) // no data
-	types.WriteString(buf, "minecraft:the_end")
-	types.WriteVarInt(buf, 0) // no data
-	types.WriteString(buf, "minecraft:the_nether")
-	types.WriteVarInt(buf, 0) // no data
-
-	fmt.Printf("Dimension Type Registry Data: % 2x\n", buf.Bytes())
-
-	err := types.WriteVarInt(c.conn, int32(buf.Len()))
-	if err != nil {
-		fmt.Printf("Failed to write send registry data packet: %v\n", err)
-		c.Disconnect("registry data failed", "red")
-		return
+	emptyRegistries := map[string][]string{
+		"minecraft:cat_variant":     {"minecraft:jellie"},
+		"minecraft:chicken_variant": {"minecraft:temperate"},
+		"minecraft:cow_variant":     {"minecraft:temperate"},
+		"minecraft:damage_type": {
+			"minecraft:arrow",
+			"minecraft:bad_respawn_point",
+			"minecraft:cactus",
+			"minecraft:campfire",
+			"minecraft:cramming",
+			"minecraft:dragon_breath",
+			"minecraft:drown",
+			"minecraft:dry_out",
+			"minecraft:ender_pearl",
+			"minecraft:explosion",
+			"minecraft:fall",
+			"minecraft:falling_anvil",
+			"minecraft:falling_block",
+			"minecraft:falling_stalactite",
+			"minecraft:fireball",
+			"minecraft:fireworks",
+			"minecraft:fly_into_wall",
+			"minecraft:freeze",
+			"minecraft:generic",
+			"minecraft:generic_kill",
+			"minecraft:hot_floor",
+			"minecraft:in_fire",
+			"minecraft:in_wall",
+			"minecraft:indirect_magic",
+			"minecraft:lava",
+			"minecraft:lightning_bolt",
+			"minecraft:mace_smash",
+			"minecraft:magic",
+			"minecraft:mob_attack",
+			"minecraft:mob_attack_no_aggro",
+			"minecraft:mob_projectile",
+			"minecraft:on_fire",
+			"minecraft:out_of_world",
+			"minecraft:outside_border",
+			"minecraft:player_attack",
+			"minecraft:player_explosion",
+			"minecraft:sonic_boom",
+			"minecraft:spit",
+			"minecraft:stalagmite",
+			"minecraft:starve",
+			"minecraft:sting",
+			"minecraft:sweet_berry_bush",
+			"minecraft:thorns",
+			"minecraft:thrown",
+			"minecraft:trident",
+			"minecraft:unattributed_fireball",
+			"minecraft:wind_charge",
+			"minecraft:wither",
+			"minecraft:wither_skull",
+		},
+		"dimension_type": {
+			"minecraft:overworld",
+			"minecraft:overworld_caves",
+			"minecraft:the_end",
+			"minecraft:the_nether",
+		},
+		"minecraft:frog_variant":     {"minecraft:temperate"},
+		"minecraft:painting_variant": {"minecraft:water"},
+		"minecraft:pig_variant":      {"minecraft:temperate"},
+		"minecraft:worldgen/biome": {
+			"minecraft:badlands",
+			"minecraft:bamboo_jungle",
+			"minecraft:basalt_deltas",
+			"minecraft:beach",
+			"minecraft:birch_forest",
+			"minecraft:cherry_grove",
+			"minecraft:cold_ocean",
+			"minecraft:crimson_forest",
+			"minecraft:dark_forest",
+			"minecraft:deep_cold_ocean",
+			"minecraft:deep_dark",
+			"minecraft:deep_frozen_ocean",
+			"minecraft:deep_lukewarm_ocean",
+			"minecraft:deep_ocean",
+			"minecraft:desert",
+			"minecraft:dripstone_caves",
+			"minecraft:end_barrens",
+			"minecraft:end_highlands",
+			"minecraft:end_midlands",
+			"minecraft:eroded_badlands",
+			"minecraft:flower_forest",
+			"minecraft:forest",
+			"minecraft:frozen_ocean",
+			"minecraft:frozen_peaks",
+			"minecraft:frozen_river",
+			"minecraft:grove",
+			"minecraft:ice_spikes",
+			"minecraft:jagged_peaks",
+			"minecraft:jungle",
+			"minecraft:lukewarm_ocean",
+			"minecraft:lush_caves",
+			"minecraft:mangrove_swamp",
+			"minecraft:meadow",
+			"minecraft:mushroom_fields",
+			"minecraft:nether_wastes",
+			"minecraft:ocean",
+			"minecraft:old_growth_birch_forest",
+			"minecraft:old_growth_pine_taiga",
+			"minecraft:old_growth_spruce_taiga",
+			"minecraft:pale_garden",
+			"minecraft:plains",
+			"minecraft:river",
+			"minecraft:savanna",
+			"minecraft:savanna_plateau",
+			"minecraft:small_end_islands",
+			"minecraft:snowy_beach",
+			"minecraft:snowy_plains",
+			"minecraft:snowy_slopes",
+			"minecraft:snowy_taiga",
+			"minecraft:soul_sand_valley",
+			"minecraft:sparse_jungle",
+			"minecraft:stony_peaks",
+			"minecraft:stony_shore",
+			"minecraft:sunflower_plains",
+			"minecraft:swamp",
+			"minecraft:taiga",
+			"minecraft:the_end",
+			"minecraft:the_void",
+			"minecraft:warm_ocean",
+			"minecraft:warped_forest",
+			"minecraft:windswept_forest",
+			"minecraft:windswept_gravelly_hills",
+			"minecraft:windswept_hills",
+			"minecraft:windswept_savanna",
+			"minecraft:wooded_badlands",
+		},
+		"minecraft:wolf_sound_variant": {"minecraft:cute"},
+		"minecraft:wolf_variant":       {"minecraft:pale"},
 	}
-	fmt.Printf("Dimension Type Registry Data Length: 0x%2x\n", buf.Len())
-	_, err = c.conn.Write(buf.Bytes())
-	if err != nil {
-		fmt.Printf("Failed to write send registry data packet: %v\n", err)
-		c.Disconnect("registry data failed", "red")
-		return
-	}
-	emptyRegistries := map[string]string{
-		"minecraft:cat_variant":        "minecraft:jellie",
-		"minecraft:chicken_variant":    "minecraft:temperate",
-		"minecraft:cow_variant":        "minecraft:temperate",
-		"minecraft:frog_variant":       "minecraft:temperate",
-		"minecraft:painting_variant":   "minecraft:water",
-		"minecraft:pig_variant":        "minecraft:temperate",
-		"minecraft:wolf_sound_variant": "minecraft:cute",
-		"minecraft:wolf_variant":       "minecraft:pale",
-	}
-	for registry, value := range emptyRegistries {
+
+	for registry, entries := range emptyRegistries {
 		buf := &bytes.Buffer{}
 		buf.WriteByte(byte(PACKETREGISTRYDATA))
 
 		types.WriteString(buf, registry)
-		types.WriteVarInt(buf, 1) // 1 entry
-		types.WriteString(buf, value)
-		types.WriteVarInt(buf, 0) // no data
+		types.WriteVarInt(buf, int32(len(entries)))
+		for _, v := range entries {
+			types.WriteString(buf, v)
+			types.WriteVarInt(buf, 0) // no data
+		}
 
 		err := types.WriteVarInt(c.conn, int32(buf.Len()))
 		if err != nil {
@@ -599,8 +693,6 @@ func (c *Client) sendLogin() {
 
 	types.WriteBoolean(buf, false)
 
-	fmt.Printf("Login Data: % 2x\n", buf.Bytes())
-
 	err := types.WriteVarInt(c.conn, int32(buf.Len()))
 	if err != nil {
 		fmt.Printf("Failed to write send login(play) packet: %v\n", err)
@@ -656,6 +748,53 @@ func (c *Client) sendPlayerPosition() {
 		c.Disconnect("teleport failed", "red")
 		return
 	}
+}
+
+func (c *Client) handleClientPosUpdate(data []byte, hasPosition, hasRotation bool) {
+	var err error
+	var x, y, z float64
+	var yaw, pitch float32
+
+	if hasPosition {
+		x, err = types.PopDouble(&data)
+		if err != nil {
+			fmt.Printf("Failed to read client position x: %v\n", err)
+			c.Stop()
+			return
+		}
+		y, err = types.PopDouble(&data)
+		if err != nil {
+			fmt.Printf("Failed to read client position y: %v\n", err)
+			c.Stop()
+			return
+		}
+		z, err = types.PopDouble(&data)
+		if err != nil {
+			fmt.Printf("Failed to read client position z: %v\n", err)
+			c.Stop()
+			return
+		}
+	}
+
+	if hasRotation {
+		yaw, err = types.PopFloat(&data)
+		if err != nil {
+			fmt.Printf("Failed to read client rotation yaw: %v\n", err)
+			c.Stop()
+			return
+		}
+		pitch, err = types.PopFloat(&data)
+		if err != nil {
+			fmt.Printf("Failed to read client rotation pitch: %v\n", err)
+			c.Stop()
+			return
+		}
+	}
+
+	flags := data[0]
+	onGround, onWall := flags&1 == 1, flags&2 == 2
+
+	fmt.Printf("Client %s moved to % 4.5f/% 2.5f/% 4.5f with rotation % 3.2f/% 3.2f (OnGround: %t, OnWall: %t)\n", c, x, y, z, yaw, pitch, onGround, onWall)
 }
 
 func (c *Client) sendChunkCenter() {
