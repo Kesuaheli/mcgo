@@ -145,6 +145,9 @@ func (c *Client) parsePackage(length int32) {
 		case PACKETMOVEPLAYERPOSROT:
 			c.handleClientPosUpdate(data, true, true)
 			return
+		case PACKETCLIENTTICKEND:
+			// ignore
+			return
 		}
 	}
 	fmt.Printf("Unknown packet 0x%02x in state %s: dropping connection\npacket data: % 02x\nstring: %s\n\n", packetID, c.state, data, string(data))

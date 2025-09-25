@@ -101,6 +101,8 @@ const (
 	PACKETCHUNKDATA   Packet = 0x27 // 0x28
 
 	PACKETMOVEPLAYERPOSROT Packet = 0x1e // 0x1d
+
+	PACKETCLIENTTICKEND Packet = 0x1c // 0x1b
 )
 
 type StatusResponse struct {
