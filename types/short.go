@@ -14,3 +14,8 @@ func PopUShort(data *[]byte) (uint16, error) {
 	*data = (*data)[2:]
 	return i, nil
 }
+
+func PopShort(data *[]byte) (int16, error) {
+	val, err := PopUShort(data)
+	return int16(val), err
+}

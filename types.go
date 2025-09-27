@@ -93,11 +93,15 @@ const (
 
 	// Offset in the packet registry: 1.21.8 // 1.21.4
 
+	PACKETBLOCKUPDATE Packet = 0x08 // 0x23
+	PACKETGAMEEVENT   Packet = 0x22 // 0x23
+
 	PACKETLOGINPLAYING   Packet = 0x2B // 0x2C
 	PACKETPLAYERPOSITION Packet = 0x41 // 0x42
 	PACKETACCEPTTELEPORT Packet = 0x00
 
 	PACKETCHUNKCENTER Packet = 0x57 // 0x58
+	PACKETKEEPALIVE   Packet = 0x26 // 0x27
 	PACKETCHUNKDATA   Packet = 0x27 // 0x28
 
 	PACKETCLIENTTICKEND    Packet = 0x0c // 0x0b
