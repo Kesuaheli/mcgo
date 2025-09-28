@@ -27,6 +27,8 @@ type Client struct {
 	name   string
 	uuid   uuid.UUID
 	config ClientConfiguration
+
+	connected bool
 }
 
 type ClientConfiguration struct {
@@ -154,6 +156,8 @@ func (c *Client) parsePackage(length int32) {
 					}
 				}
 			}()
+			time.Sleep(5 * time.Second)
+			c.SendExampleItem()
 			return
 		case PACKETMOVEPLAYERPOS:
 			c.handleClientPosUpdate(data, true, false)
@@ -327,6 +331,7 @@ func (c *Client) Disconnect(reason, color string) {
 	}
 
 	fmt.Printf("Wrote Disconnect message to %s: %s\n", c, buf.String())
+	c.connected = false
 }
 
 func (c *Client) sendLoginSuccess() {
@@ -3142,6 +3147,31 @@ func (c *Client) SendBlockUpdate() {
 func (c *Client) SendKeepalive() bool {
 
 	_, err := c.conn.Write([]byte{0x09, byte(PACKETKEEPALIVE), 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01})
+	if err != nil {
+		fmt.Printf("Failed to write keepalive packet: %v\n", err)
+		c.Disconnect("Loading World failed", "red")
+		return false
+	}
+	return true
+}
+
+func (c *Client) SendExampleItem() bool {
+	buf := &bytes.Buffer{}
+
+	buf.Write([]byte{byte(PACKETSETPLAYERINVENTORY)})
+	types.WriteVarInt(buf, 0x8) // last slot on player hotbar
+
+	types.WriteVarInt(buf, 1) // item amount
+
+	types.WriteVarInt(buf, 93) // diamond_block
+
+	buf.Write([]byte{0x00}) // no components to add
+
+	buf.Write([]byte{0x00}) // no components to remove
+
+	types.WriteVarInt(c.conn, int32(buf.Len()))
+
+	_, err := c.conn.Write(buf.Bytes())
 	if err != nil {
 		fmt.Printf("Failed to write keepalive packet: %v\n", err)
 		c.Disconnect("Loading World failed", "red")
