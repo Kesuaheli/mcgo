@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Kesuaheli/nbtreader"
 	"github.com/google/uuid"
 )
 
@@ -27,6 +28,8 @@ type Client struct {
 	name   string
 	uuid   uuid.UUID
 	config ClientConfiguration
+
+	server *Server
 
 	connected bool
 }
@@ -58,6 +61,8 @@ func (c *Client) Stop() {
 		stack := stacks[0] + "\n" + strings.Join(stacks[5:], "\n")
 		fmt.Printf("Stopped client %s from:\n%s\n", c, stack)
 	}
+	c.connected = false
+	c.SendPlayerAddTabUpdate()
 }
 
 func (c *Client) listen() {
@@ -158,6 +163,8 @@ func (c *Client) parsePackage(length int32) {
 			}()
 			time.Sleep(5 * time.Second)
 			c.SendExampleItem()
+			c.SendPlayerAddTabUpdate()
+			c.SendMessage()
 			return
 		case PACKETMOVEPLAYERPOS:
 			c.handleClientPosUpdate(data, true, false)
@@ -167,6 +174,12 @@ func (c *Client) parsePackage(length int32) {
 			return
 		case PACKETCLIENTTICKEND:
 			// ignore
+			return
+		case PACKETCLIENTKEEPALIVE:
+			// ignore
+			return
+		case PACKETCUSTOMCLICKACTION:
+			c.handleCustomClickAction(data)
 			return
 		}
 	}
@@ -365,6 +378,7 @@ func (c *Client) sendLoginSuccess() {
 
 func (c *Client) handleLoginAcknowledgement() {
 	c.state = STATECONFIGURATION
+	c.connected = true
 }
 
 func (c *Client) handlePluginMessage(data []byte) {
@@ -490,7 +504,11 @@ func (c *Client) sendVanillaFeatures() {
 
 func (c *Client) sendRegistryData() {
 	emptyRegistries := map[string][]string{
-		"minecraft:cat_variant":     {"minecraft:jellie"},
+		"minecraft:cat_variant": {"minecraft:jellie"},
+		"minecraft:chat_type": {
+			"minecraft:chat",
+			"minecraft:msg_command_incoming",
+		},
 		"minecraft:chicken_variant": {"minecraft:temperate"},
 		"minecraft:cow_variant":     {"minecraft:temperate"},
 		"minecraft:damage_type": {
@@ -630,7 +648,10 @@ func (c *Client) sendRegistryData() {
 
 		types.WriteString(buf, registry)
 		types.WriteVarInt(buf, int32(len(entries)))
-		for _, v := range entries {
+		for i, v := range entries {
+			if v == "minecraft:the_void" {
+				fmt.Printf("found the void at index %d\n", i)
+			}
 			types.WriteString(buf, v)
 			types.WriteVarInt(buf, 0) // no data
 		}
@@ -865,13 +886,15 @@ func (c *Client) sendChunkCenter() {
 func (c *Client) sendChunkData() {
 	c.conn.Write([]byte{0x01, 0x0c})
 
-	for x := int32(-1); x <= 1; x++ {
-		for z := int32(-1); z <= 1; z++ {
+	worldSize := int32(5)
+	worldSizeInDirection := worldSize / 2
+	for x := -worldSizeInDirection; x <= worldSizeInDirection; x++ {
+		for z := -worldSizeInDirection; z <= worldSizeInDirection; z++ {
 			c.sendSingleChunk(x, z)
 		}
 	}
 
-	c.conn.Write([]byte{0x02, 0x0b, 0x09})
+	c.conn.Write([]byte{0x02, 0x0b, byte(worldSize * worldSize)})
 
 	go func() {
 		time.Sleep(10 * time.Second)
@@ -3141,7 +3164,6 @@ func (c *Client) SendBlockUpdate() {
 		c.Disconnect("Loading World failed", "red")
 		return
 	}
-	fmt.Printf("Sent Block Update\n")
 }
 
 func (c *Client) SendKeepalive() bool {
@@ -3178,4 +3200,99 @@ func (c *Client) SendExampleItem() bool {
 		return false
 	}
 	return true
+}
+
+func (c *Client) SendChat() {
+	pSender := NewSender(PACKETPLAYERCHAT)
+
+	// Header
+	types.WriteVarInt(pSender, 0)      // Unknown
+	types.WriteLong(pSender, 0)        // UUID Part 1
+	types.WriteLong(pSender, 0)        // UUID Part 2
+	types.WriteVarInt(pSender, 0)      // Unknown
+	types.WriteBoolean(pSender, false) // No message signature
+
+	// Body
+	types.WriteString(pSender, "Welcome to the KrasserServer!")
+	types.WriteLong(pSender, time.Now().UnixMilli())
+	types.WriteLong(pSender, 0) // Sign Salt
+
+	// Prefixed Array
+	types.WriteVarInt(pSender, 0)
+
+	//Other
+	types.WriteBoolean(pSender, false) // No unsigned content // Unknown
+	types.WriteBoolean(pSender, false) // Filter Type
+
+	// Chat Formatting
+	types.WriteVarInt(pSender, 2)                // index of "minecraft:chat" + 1 from minecraft:chat_type registry
+	pSender.Write([]byte{0x08, 0x00, 0x01, 'A'}) // NBT Text Component of sender
+	types.WriteBoolean(pSender, false)           // no target name
+
+	pSender.Send(c, "chat")
+}
+
+func (c *Client) SendMessage() {
+	pSender := NewSender(PACKETSYSTEMCHAT)
+	nbtreader.WriteNBT(pSender, nbtreader.Compound{
+		"text": {
+			Index: 0,
+			Value: nbtreader.String("Welcome to the "),
+		},
+		"extra": {
+			Index: 1,
+			Value: nbtreader.List{
+				TagType: nbtreader.Tag_Compound,
+				Elements: []nbtreader.NbtTag{
+					nbtreader.Compound{
+						"text":   {Index: 0, Value: nbtreader.String("KrasserServer")},
+						"color":  {Index: 1, Value: nbtreader.String("red")},
+						"italic": {Index: 2, Value: nbtreader.Byte(1)},
+					},
+					nbtreader.Compound{
+						"text": {Index: 0, Value: nbtreader.String("! [")},
+					},
+					nbtreader.Compound{
+						"text":       {Index: 0, Value: nbtreader.String("Transfer")},
+						"color":      {Index: 1, Value: nbtreader.String("blue")},
+						"underlined": {Index: 2, Value: nbtreader.Byte(1)},
+						"click_event": {
+							Index: 3,
+							Value: nbtreader.Compound{
+								"action":  {Index: 0, Value: nbtreader.String("custom")},
+								"id":      {Index: 1, Value: nbtreader.String("krass:transfer")},
+								"payload": {Index: 2, Value: nbtreader.String("127.0.0.1:25555")},
+							},
+						},
+					},
+					nbtreader.Compound{
+						"text": {Index: 0, Value: nbtreader.String("]")},
+					},
+				},
+			},
+		},
+	})
+	types.WriteBoolean(pSender, false) // not in action bar
+
+	fmt.Printf("chat data: % 02x\n", pSender.Bytes())
+
+	pSender.Send(c, "message")
+}
+
+func (c *Client) handleCustomClickAction(data []byte) {
+	id, _ := types.PopString(&data)
+	contentLength, _ := types.PopVarInt(&data)
+	nbt, err := nbtreader.New(bytes.NewBuffer(data[:contentLength]), nil, true)
+	data = data[contentLength:]
+	if err != nil {
+		fmt.Printf("Failed to read custom click payload: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Got custom click action: %s\n→ %s\n", id, nbt)
+
+	switch id {
+	case "krass:transfer":
+		c.sendTranfer()
+	}
 }

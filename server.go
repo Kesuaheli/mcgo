@@ -7,7 +7,7 @@ import (
 
 type Server struct {
 	listener *net.TCPListener
-	clients  []Client
+	clients  []*Client
 }
 
 // StartServer starts a new server listening to the given port number. If port is 0, an available
@@ -51,7 +51,7 @@ func (s *Server) NewClient(conn *net.TCPConn) {
 		return
 	}
 
-	c := Client{conn: conn, state: STATEHANDSHAKE}
+	c := Client{conn: conn, state: STATEHANDSHAKE, server: s}
 	go c.listen()
-	s.clients = append(s.clients, c)
+	s.clients = append(s.clients, &c)
 }

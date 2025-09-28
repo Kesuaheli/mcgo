@@ -106,9 +106,21 @@ const (
 
 	PACKETSETPLAYERINVENTORY Packet = 0x65 // 0x64
 
+	// A clientbound packet to send a message to the player.
+	PACKETPLAYERCHAT       Packet = 0x3A
+	PACKETPLAYERINFOUPDATE Packet = 0x3F
+	PACKETSYSTEMCHAT       Packet = 0x72
+
 	PACKETCLIENTTICKEND    Packet = 0x0c // 0x0b
 	PACKETMOVEPLAYERPOS    Packet = 0x1d // 0x1d
 	PACKETMOVEPLAYERPOSROT Packet = 0x1e // 0x1d
+
+	// A serverbound packet when a player sends a chat message.
+	PACKETPLAYERSENTMESSAGE Packet = 0x08 // 0x09
+	// A serverbound packet to respond to the [PACKETKEEPALIVE] packet.
+	PACKETCLIENTKEEPALIVE Packet = 0x1B
+	// A serverbound packet sent when the client clicks a text component with the minecraft:custom click action.
+	PACKETCUSTOMCLICKACTION Packet = 0x41
 )
 
 type StatusResponse struct {
