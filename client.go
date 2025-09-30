@@ -183,8 +183,7 @@ func (c *Client) parsePackage(length int32) {
 			return
 		}
 	}
-	fmt.Printf("Unknown packet 0x%02x in state %s: dropping connection\npacket data: % 02x\nstring: %s\n\n", packetID, c.state, data, string(data))
-	c.Stop()
+	fmt.Printf("Unknown packet 0x%02x in state %s, packet data: % 02x\n", packetID, c.state, data)
 }
 
 func (c *Client) handleHandshake(data []byte) {
