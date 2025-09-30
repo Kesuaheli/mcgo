@@ -4,11 +4,15 @@ import (
 	"fmt"
 	"mcgo/world"
 	"net"
+
+	"github.com/google/uuid"
 )
 
 type Server struct {
 	listener *net.TCPListener
 	clients  []*Client
+
+	entityCount int32
 }
 
 var World *world.World = world.NewWorld()
@@ -60,4 +64,12 @@ func (s *Server) NewClient(conn *net.TCPConn) {
 	c := Client{conn: conn, state: STATEHANDSHAKE, server: s}
 	go c.listen()
 	s.clients = append(s.clients, &c)
+}
+
+func (s *Server) NewEntityID() (eID int32, UUID uuid.UUID) {
+	s.entityCount++
+	if s.entityCount < 1 {
+		panic("entity count overflow")
+	}
+	return s.entityCount - 1, uuid.New()
 }

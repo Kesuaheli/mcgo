@@ -162,9 +162,16 @@ func (c *Client) parsePackage(length int32) {
 				}
 			}()
 			time.Sleep(5 * time.Second)
-			c.SendExampleItem()
 			c.SendPlayerAddTabUpdate()
+			return
+		case PACKETPLAYERLOADED:
+			fmt.Printf("Player %s loaded\n", c.name)
+			c.SendExampleItem()
 			c.SendMessage()
+			c.addEntity(TYPE_armor_stand, 4.5, -60, 4.5)
+			c.addEntity(TYPE_pig, 12.5, -60, 4.5)
+			c.addEntity(TYPE_player, 4.5, -60, 12.5)
+			c.addEntity(TYPE_cat, 12.5, -60, 12.5)
 			return
 		case PACKETMOVEPLAYERPOS:
 			c.handleClientPosUpdate(data, true, false)
@@ -180,6 +187,12 @@ func (c *Client) parsePackage(length int32) {
 			return
 		case PACKETCUSTOMCLICKACTION:
 			c.handleCustomClickAction(data)
+			return
+		case PACKETPLAYERROTATED:
+			c.handleClientPosUpdate(data, false, true)
+			return
+		case PACKETPLAYERINPUT:
+			c.handlePlayerInput(data)
 			return
 		}
 	}
@@ -378,6 +391,7 @@ func (c *Client) sendLoginSuccess() {
 func (c *Client) handleLoginAcknowledgement() {
 	c.state = STATECONFIGURATION
 	c.connected = true
+	fmt.Printf("Player connected: %s %q ", c.name, c.uuid.String())
 }
 
 func (c *Client) handlePluginMessage(data []byte) {
@@ -677,7 +691,8 @@ func (c *Client) sendLogin() {
 	buf.WriteByte(byte(PACKETLOGINPLAYING))
 
 	// Write Player Entity Identity
-	binary.Write(buf, binary.BigEndian, int32(1))
+	eID, _ := c.server.NewEntityID()
+	binary.Write(buf, binary.BigEndian, eID)
 
 	// Is Hardcore
 	types.WriteBoolean(buf, false)
@@ -839,6 +854,61 @@ func (c *Client) handleClientPosUpdate(data []byte, hasPosition, hasRotation boo
 	onGround, onWall := flags&1 == 1, flags&2 == 2
 
 	fmt.Printf("Client %s moved to % 4.5f/% 2.5f/% 4.5f with rotation % 3.2f/% 3.2f (OnGround: %t, OnWall: %t)\n", c, x, y, z, yaw, pitch, onGround, onWall)
+}
+
+func (c *Client) handlePlayerInput(data []byte) {
+	const (
+		FORWARD = 0x01 << iota
+		BACKWARD
+		LEFT
+		RIGHT
+		JUMP
+		SNEAK
+		SPRINT
+	)
+
+	var (
+		forward  = data[0]&FORWARD > 0
+		backward = data[0]&BACKWARD > 0
+		left     = data[0]&LEFT > 0
+		right    = data[0]&RIGHT > 0
+		jump     = data[0]&JUMP > 0
+		sneak    = data[0]&SNEAK > 0
+		sprint   = data[0]&SPRINT > 0
+	)
+
+	motionDisplay := "["
+	if forward {
+		motionDisplay += "W"
+	} else {
+		motionDisplay += " "
+	}
+	if left {
+		motionDisplay += "A"
+	} else {
+		motionDisplay += " "
+	}
+	if backward {
+		motionDisplay += "S"
+	} else {
+		motionDisplay += " "
+	}
+	if right {
+		motionDisplay += "D"
+	} else {
+		motionDisplay += " "
+	}
+	motionDisplay += "]"
+	if jump {
+		motionDisplay += "↑"
+	}
+	if sneak {
+		motionDisplay += "↓"
+	}
+	if sprint {
+		motionDisplay += "→"
+	}
+	fmt.Printf("Client %s input updated: %s\n", c, motionDisplay)
 }
 
 func (c *Client) sendGameEvent(event types.GameEvent, value float32) {
@@ -1059,8 +1129,6 @@ func (c *Client) SendMessage() {
 	})
 	types.WriteBoolean(pSender, false) // not in action bar
 
-	fmt.Printf("chat data: % 02x\n", pSender.Bytes())
-
 	pSender.Send(c, "message")
 }
 
@@ -1080,4 +1148,35 @@ func (c *Client) handleCustomClickAction(data []byte) {
 	case "krass:transfer":
 		c.sendTranfer()
 	}
+}
+
+func (c *Client) addEntity(entityType EntityType, x, y, z float64) {
+	pSender := NewSender(PACKETADDENTITY)
+
+	// Entity IDs
+	eID, UUID := c.server.NewEntityID()
+	types.WriteVarInt(pSender, eID)
+	pSender.Write(UUID[:])
+
+	// Type
+	if entityType == TYPE_player {
+		c.AddFakePlayer(UUID, "Krasser Player")
+	}
+	types.WriteVarInt(pSender, int32(entityType))
+
+	// Position
+	types.WritePositionXYZ(pSender, x, y, z)
+	types.WriteAngle(pSender, 0) // Pitch
+	types.WriteAngle(pSender, 0) // Body Yaw
+	types.WriteAngle(pSender, 0) // Head Yaw
+
+	// Data
+	types.WriteVarInt(pSender, 0) // For now always 0, data is only relevant for certain entity types
+
+	// Velocity
+	binary.Write(pSender, binary.BigEndian, int16(0)) // X
+	binary.Write(pSender, binary.BigEndian, int16(0)) // Y
+	binary.Write(pSender, binary.BigEndian, int16(0)) // Z
+
+	pSender.Send(c, "add_entity")
 }

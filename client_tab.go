@@ -79,3 +79,21 @@ func (c *Client) SendPlayerAddTabUpdate() bool {
 
 	return !sender.SendMultipleClients(c.server.clients, "TabUpdate")
 }
+
+func (c *Client) AddFakePlayer(UUID uuid.UUID, name string) {
+	sender := NewSender(PACKETPLAYERINFOUPDATE)
+	sender.Write([]byte{0x9}) // Action add player and update listed
+
+	types.WriteVarInt(sender, 1) // 1 player
+
+	binary.Write(sender, binary.BigEndian, UUID)
+
+	// Action: add player
+	types.WriteString(sender, name)
+	types.WriteBoolean(sender, false) // no data/skin
+
+	// Action: update listed
+	types.WriteBoolean(sender, false)
+
+	sender.Send(c, "add fake player info")
+}
