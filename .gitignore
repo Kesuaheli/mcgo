@@ -2,3 +2,6 @@
 /mcgo
 /mcgo.exe
 .vscode/*
+
+*.dump
+*.log

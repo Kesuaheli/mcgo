@@ -18,8 +18,9 @@ import (
 )
 
 type Client struct {
-	conn  *net.TCPConn
-	state CommunicationState
+	conn            *net.TCPConn
+	state           CommunicationState
+	globalChatCount int32
 
 	protocolVersion   int32
 	connectionAddress string
@@ -32,6 +33,15 @@ type Client struct {
 	server *Server
 
 	connected bool
+}
+
+type Message struct {
+	message   string
+	timestamp int64
+	salt      int64
+
+	signature [256]byte
+	sender    *Client
 }
 
 type ClientConfiguration struct {
@@ -161,8 +171,10 @@ func (c *Client) parsePackage(length int32) {
 					}
 				}
 			}()
-			time.Sleep(5 * time.Second)
 			c.SendPlayerAddTabUpdate()
+			return
+		case PACKETPLAYERSENTMESSAGE:
+			c.handleSentMessage(data)
 			return
 		case PACKETPLAYERLOADED:
 			fmt.Printf("Player %s loaded\n", c.name)
@@ -1057,20 +1069,45 @@ func (c *Client) SendExampleItem() bool {
 	return true
 }
 
-func (c *Client) SendChat() {
+func (c *Client) handleSentMessage(data []byte) {
+	message := Message{sender: c}
+	message.message, _ = types.PopString(&data)
+	message.timestamp, _ = types.PopLong(&data)
+	message.salt, _ = types.PopLong(&data)
+	hasSignature := data[0] == 1
+	data = data[1:]
+	if hasSignature {
+		panic("mesage signature not implemented yet")
+	}
+	types.PopVarInt(&data) // message count
+	data = data[3:]        // acknowledged messages
+	types.PopByte(&data)   // checksum
+
+	c.sendChatToAllPlayers(message)
+}
+func (c *Client) sendChatToAllPlayers(msg Message) {
+	for _, client := range c.server.clients {
+		if !client.connected {
+			continue
+		}
+		client.sendChat(msg)
+	}
+}
+
+func (c *Client) sendChat(msg Message) {
 	pSender := NewSender(PACKETPLAYERCHAT)
 
 	// Header
-	types.WriteVarInt(pSender, 0)      // Unknown
-	types.WriteLong(pSender, 0)        // UUID Part 1
-	types.WriteLong(pSender, 0)        // UUID Part 2
-	types.WriteVarInt(pSender, 0)      // Unknown
-	types.WriteBoolean(pSender, false) // No message signature
+	types.WriteVarInt(pSender, c.globalChatCount) // Unknown: Global Index
+	c.globalChatCount++
+	binary.Write(pSender, binary.BigEndian, msg.sender.uuid) // UUID
+	types.WriteVarInt(pSender, 0)                            // Unknown: Index
+	types.WriteBoolean(pSender, false)                       // No message signature
 
 	// Body
-	types.WriteString(pSender, "Welcome to the KrasserServer!")
-	types.WriteLong(pSender, time.Now().UnixMilli())
-	types.WriteLong(pSender, 0) // Sign Salt
+	types.WriteString(pSender, msg.message)
+	types.WriteLong(pSender, msg.timestamp)
+	types.WriteLong(pSender, msg.salt)
 
 	// Prefixed Array
 	types.WriteVarInt(pSender, 0)
@@ -1080,9 +1117,12 @@ func (c *Client) SendChat() {
 	types.WriteBoolean(pSender, false) // Filter Type
 
 	// Chat Formatting
-	types.WriteVarInt(pSender, 2)                // index of "minecraft:chat" + 1 from minecraft:chat_type registry
-	pSender.Write([]byte{0x08, 0x00, 0x01, 'A'}) // NBT Text Component of sender
-	types.WriteBoolean(pSender, false)           // no target name
+	types.WriteVarInt(pSender, 1) // index of "minecraft:chat" + 1 from minecraft:chat_type registry
+
+	nbtreader.WriteNBT(pSender, nbtreader.Compound{
+		"text": {0, nbtreader.String(msg.sender.name)},
+	})
+	types.WriteBoolean(pSender, false) // no target name
 
 	pSender.Send(c, "chat")
 }

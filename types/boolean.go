@@ -6,7 +6,7 @@ import (
 	"io"
 )
 
-func PopBoolean(r io.Reader) (bool, error) {
+func ReadBoolean(r io.Reader) (bool, error) {
 	if r == nil {
 		return false, fmt.Errorf("data for boolean is nil or too short")
 	}
