@@ -1,33 +1,36 @@
 package types
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
 )
 
-func PopDouble(data *[]byte) (float64, error) {
+func PopDouble(data *[]byte) (parsedDouble float64, err error) {
 	if data == nil || len(*data) < 8 {
-		return 0, fmt.Errorf("data for Long is nil or too short")
+		return 0, fmt.Errorf("data for Double is nil or too short")
 	}
 
-	l := binary.BigEndian.Uint64(*data)
+	r := bytes.NewBuffer(*data)
+	err = binary.Read(r, binary.BigEndian, &parsedDouble)
 	*data = (*data)[8:]
-	return float64(l), nil
+	return parsedDouble, err
 }
 
 func WriteDouble(w io.Writer, l float64) error {
 	return binary.Write(w, binary.BigEndian, l)
 }
 
-func PopFloat(data *[]byte) (float32, error) {
+func PopFloat(data *[]byte) (parsedFloat float32, err error) {
 	if data == nil || len(*data) < 4 {
-		return 0, fmt.Errorf("data for Long is nil or too short")
+		return 0, fmt.Errorf("data for Float is nil or too short")
 	}
 
-	l := binary.BigEndian.Uint32(*data)
+	r := bytes.NewBuffer(*data)
+	err = binary.Read(r, binary.BigEndian, &parsedFloat)
 	*data = (*data)[4:]
-	return float32(l), nil
+	return parsedFloat, err
 }
 
 func WriteFloat(w io.Writer, l float32) error {
